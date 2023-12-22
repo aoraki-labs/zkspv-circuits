@@ -13,6 +13,17 @@ use tokio::signal::ctrl_c;
 use tokio::sync::mpsc::UnboundedSender;
 use tower_http::cors::{Any, CorsLayer};
 
+
+
+use lazy_static::lazy_static;
+use tokio::task::JoinHandle;
+
+lazy_static! {
+    pub static ref TASK_HANDLER: Arc<tokio::sync::Mutex<Vec<JoinHandle<()>>>> = {
+        Arc::new(tokio::sync::Mutex::new(Vec::<JoinHandle<()>>::new()))
+    };
+}
+
 #[derive(Clone, Debug, Deserialize)]
 pub struct OriginalProof {
     pub task_id: H256,
@@ -41,6 +52,7 @@ pub async fn init_server(
     challenges_storage: Arc<Mutex<ChallengesStorage>>,
 ) -> std::io::Result<()> {
     let tx = Arc::new(tx);
+    let tx_2 = tx.clone();
     let cors = CorsLayer::new()
         // Allow `POST` when accessing the resource
         .allow_methods([Method::POST])
@@ -69,6 +81,52 @@ pub async fn init_server(
             Value::String(serialized)
         })
         .unwrap();
+
+    module
+        .register_method("GenTaskProof", move |params, c| {
+            let tx_2 = tx_2.clone();
+            let original_proof: OriginalProof = params.parse().unwrap();
+            tokio::spawn(async move {
+                tx_2.send(original_proof).unwrap();
+            });
+
+            let response = Response { status: 200 };
+            let serialized = serde_json::to_string(&response).unwrap();
+            Value::String(serialized)
+        })
+        .unwrap();
+
+
+    //initial the env,like GPU/MEMORY initialization if needed
+    module
+        .register_method("InitProver", move |_params, c| {
+
+            // todo!();
+
+            let serialized = "success".to_string();
+            Value::String(serialized)
+        })
+        .unwrap();
+
+    //cancel one proving task and clear GPU/MEMORY resources if needed
+    module
+        .register_async_method("CancelTaskProof",  |_params, c|async move {
+
+            // todo!();
+
+            let task_temp = TASK_HANDLER.clone();
+            let mut queue = task_temp.lock().await;
+            for i in queue.iter() {
+                i.abort();
+                drop(i)
+            }
+            queue.clear(); 
+            
+            let serialized = "success".to_string();
+            Value::String(serialized)
+        })
+        .unwrap();
+
 
     module
         .register_method("get_challenge_proof", move |params, c| {

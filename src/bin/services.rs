@@ -7,9 +7,10 @@ use std::io::BufReader;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use tokio::task;
+use tokio::task::JoinHandle;
 use zkspv_circuits::config::log::init_log;
 use zkspv_circuits::integration::Integration;
-use zkspv_circuits::server::{init_server, OriginalProof};
+use zkspv_circuits::server::{init_server, OriginalProof, TASK_HANDLER};
 use zkspv_circuits::util::cache::CacheConfig;
 
 #[derive(Parser, Debug)]
@@ -34,7 +35,7 @@ async fn main() {
             let cache = CacheConfig::from_reader("configs/cache/cache.json");
             for path in cache.list {
                 info!(target: "app","Start caching srs and pk files: {:?}",path);
-                let arbitration_data_file = File::open(path).unwrap();
+                let arbitration_data_file = File::open(path.clone()).unwrap();
                 let data_reader = BufReader::new(arbitration_data_file);
                 let proof_str: Value = serde_json::from_reader(data_reader).unwrap();
 
@@ -103,7 +104,10 @@ async fn main() {
         }
     });
 
-    tokio::join!(receive_tasks, execute_tasks);
+    let task_handle_vec = TASK_HANDLER.clone();
+    let mut queue = task_handle_vec.lock().await;
+    queue.push(execute_tasks);
+    tokio::join!(receive_tasks);
 }
 
 struct Challenge {
